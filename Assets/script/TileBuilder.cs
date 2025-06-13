@@ -26,10 +26,11 @@ public class TileBuilder : MonoBehaviour
     private readonly HashSet<Vector2Int> victimList = new();
     private readonly HashSet<Vector2Int> falseAlarmList = new();
 
+    private enum WallDirection { Top = 0, Right = 1, Bottom = 2, Left = 3 }
+
     private struct WallKey
     {
-        public int x;
-        public int z;
+        public int x, z;
         public WallDirection direction;
 
         public WallKey(int x, int z, WallDirection dir)
@@ -51,8 +52,6 @@ public class TileBuilder : MonoBehaviour
         }
     }
 
-    private enum WallDirection { Top = 0, Right = 1, Bottom = 2, Left = 3 }
-
     private readonly HashSet<WallKey> placedWalls = new();
 
     public static float CellSize => 2f;
@@ -64,10 +63,7 @@ public class TileBuilder : MonoBehaviour
         return new Vector3(worldX, 0.5f, worldZ);
     }
 
-    void Awake()
-    {
-        StaticCellSize = cellSize;
-    }
+    void Awake() => StaticCellSize = cellSize;
 
     public void GenerateFromTiles(Dictionary<string, TileData> tiles)
     {
@@ -89,27 +85,29 @@ public class TileBuilder : MonoBehaviour
             DestroyImmediate(child.gameObject);
     }
 
+    private void ParseCoords(string key, out int row, out int col, out int x, out int z)
+    {
+        string[] coords = key.Split(',');
+        row = int.Parse(coords[0]);
+        col = int.Parse(coords[1]);
+        z = row - 1;
+        x = col - 1;
+    }
+
     private void CollectPointsOfInterest(Dictionary<string, TileData> tiles)
     {
         foreach (var entry in tiles)
         {
-            string[] coords = entry.Key.Split(',');
-            int row = int.Parse(coords[0]);
-            int col = int.Parse(coords[1]);
-            int z = row - 1;
-            int x = col - 1;
+            ParseCoords(entry.Key, out _, out _, out int x, out int z);
             var tile = entry.Value;
 
-            if (tile.fireStatus > 0)
-                fireList.Add(new Vector2Int(x, z));
+            if (tile.fireStatus > 0) fireList.Add(new Vector2Int(x, z));
+            if (!tile.hasPoi) continue;
 
-            if (tile.hasPoi)
-            {
-                if (tile.numberVictims > 0)
-                    victimList.Add(new Vector2Int(x, z));
-                else
-                    falseAlarmList.Add(new Vector2Int(x, z));
-            }
+            if (tile.numberVictims > 0)
+                victimList.Add(new Vector2Int(x, z));
+            else
+                falseAlarmList.Add(new Vector2Int(x, z));
         }
     }
 
@@ -117,12 +115,7 @@ public class TileBuilder : MonoBehaviour
     {
         foreach (var entry in tiles)
         {
-            string[] coords = entry.Key.Split(',');
-            int row = int.Parse(coords[0]);
-            int col = int.Parse(coords[1]);
-            int z = row - 1;
-            int x = col - 1;
-
+            ParseCoords(entry.Key, out int row, out int col, out int x, out int z);
             Vector3 center = GetTileWorldPosition(x, z);
             GameObject floor = Instantiate(floorPrefab, center + Vector3.down * 0.5f, Quaternion.identity, transform);
             floor.name = $"Floor_{row}_{col}";
@@ -134,167 +127,69 @@ public class TileBuilder : MonoBehaviour
     {
         foreach (var entry in tiles)
         {
-            string[] coords = entry.Key.Split(',');
-            int row = int.Parse(coords[0]);
-            int col = int.Parse(coords[1]);
-            int z = row - 1;
-            int x = col - 1;
+            ParseCoords(entry.Key, out int row, out int col, out int x, out int z);
             var tile = entry.Value;
+            if (ShouldSkipWalls(row, col)) continue;
 
-            PlaceWallsForTile(tile, x, z, row, col);
+            bool hasFF = tile.firefighters != null && tile.firefighters.Length > 0;
+
+            TryPlaceWall(tile, WallDirection.Top, row, col, x, z, tile.top, tile.topHealth, tile.top == 2 && tile.isOpen && hasFF);
+            TryPlaceWall(tile, WallDirection.Right, row, col, x, z, tile.right, tile.rightHealth, tile.right == 2 && tile.isOpen && hasFF);
+            TryPlaceWall(tile, WallDirection.Bottom, row, col, x, z, tile.bottom, tile.bottomHealth, tile.bottom == 2 && tile.isOpen && hasFF);
+            TryPlaceWall(tile, WallDirection.Left, row, col, x, z, tile.left, tile.leftHealth, tile.left == 2 && tile.isOpen && hasFF);
         }
     }
 
-    private bool ShouldSkipWalls(int row, int col)
+    private void TryPlaceWall(TileData tile, WallDirection dir, int row, int col, int x, int z, int value, int health, bool isOpen)
     {
-        return (row == 5 && col == 6);
-    }
-
-    private bool ShouldSwapLeftRight(int row, int col)
-    {
-        return
-            (col == 1 && row >= 1 && row <= 6) ||
-            (col == 8 && row >= 1 && row <= 4) ||
-            (row == 6 && col == 6) ||
-            (row == 1 && col == 3) || (row == 2 && col == 3) ||
-            (row == 1 && col == 6) || (row == 2 && col == 6) ||
-            (row == 6 && col == 5) || (row == 4 && col == 7) || (row == 3 && col == 7);
-    }
-
-    private bool ShouldMoveLeftToRight(int row, int col)
-    {
-        return
-            (row == 3 && col == 2) || (row == 4 && col == 2) ||
-            (row == 5 && col == 5) || (row == 6 && col == 5) ||
-            (row == 5 && col == 7) || (row == 6 && col == 7) ||
-            (row == 3 && col == 6) || (row == 4 && col == 6);
-    }
-
-    private bool ShouldForceRightToLeft(int row, int col)
-    {
-        return
-            (row == 2 && col == 6) ||
-            (row == 3 && col == 1) ||
-            (row == 4 && col == 7) ||
-            (row == 6 && col == 5);
-    }
-
-    private void PlaceWallsForTile(TileData tile, int x, int z, int row, int col)
-    {
-        if (ShouldSkipWalls(row, col))
-            return;
+        WallKey key = new(x, z, dir);
+        if (value <= 0 || placedWalls.Contains(key)) return;
 
         Vector3 center = GetTileWorldPosition(x, z);
-        bool hasFF = tile.firefighters != null && tile.firefighters.Length > 0;
-
-        if (tile.top > 0)
+        Vector3 offset = dir switch
         {
-            WallKey key = new WallKey(x, z, WallDirection.Top);
-            if (!placedWalls.Contains(key))
-            {
-                Vector3 pos = center + new Vector3(0, 0, cellSize / 2);
-                Quaternion rot = Quaternion.Euler(0, 0, 0);
-                bool isOpen = tile.top == 2 && tile.isOpen && hasFF;
-                PlaceWallObject(tile.top, tile.topHealth, isOpen, pos, rot, $"Wall_Top_{row}_{col}");
-                placedWalls.Add(key);
-            }
-        }
+            WallDirection.Top => new Vector3(0, 0, cellSize / 2),
+            WallDirection.Bottom => new Vector3(0, 0, -cellSize / 2),
+            WallDirection.Left => new Vector3(-cellSize / 2, 0, 0),
+            WallDirection.Right => new Vector3(cellSize / 2, 0, 0),
+            _ => Vector3.zero
+        };
 
-        if (tile.right > 0)
+        Quaternion rot = dir switch
         {
-            WallKey key = new WallKey(x, z, WallDirection.Right);
-            if (!placedWalls.Contains(key))
-            {
-                bool isOpen = tile.right == 2 && tile.isOpen && hasFF;
-                Vector3 pos;
-                Quaternion rot;
+            WallDirection.Top => Quaternion.Euler(0, 0, 0),
+            WallDirection.Bottom => Quaternion.Euler(0, 180, 0),
+            WallDirection.Left => (ShouldSwapLeftRight(row, col) || ShouldMoveLeftToRight(row, col)) ? Quaternion.Euler(0, 90, 0) : Quaternion.Euler(0, 270, 0),
+            WallDirection.Right => (ShouldSwapLeftRight(row, col) || ShouldForceRightToLeft(row, col)) ? Quaternion.Euler(0, 270, 0) : Quaternion.Euler(0, 90, 0),
+            _ => Quaternion.identity
+        };
 
-                if (ShouldSwapLeftRight(row, col) || ShouldForceRightToLeft(row, col))
-                {
-                    pos = center + new Vector3(-cellSize / 2, 0, 0);
-                    rot = Quaternion.Euler(0, 270, 0);
-                }
-                else
-                {
-                    pos = center + new Vector3(cellSize / 2, 0, 0);
-                    rot = Quaternion.Euler(0, 90, 0);
-                }
-
-                PlaceWallObject(tile.right, tile.rightHealth, isOpen, pos, rot, $"Wall_Right_{row}_{col}");
-                placedWalls.Add(key);
-            }
-        }
-
-        if (tile.bottom > 0)
-        {
-            WallKey key = new WallKey(x, z, WallDirection.Bottom);
-            if (!placedWalls.Contains(key))
-            {
-                Vector3 pos = center + new Vector3(0, 0, -cellSize / 2);
-                Quaternion rot = Quaternion.Euler(0, 180, 0);
-                bool isOpen = tile.bottom == 2 && tile.isOpen && hasFF;
-                PlaceWallObject(tile.bottom, tile.bottomHealth, isOpen, pos, rot, $"Wall_Bottom_{row}_{col}");
-                placedWalls.Add(key);
-            }
-        }
-
-        if (tile.left > 0)
-        {
-            WallKey key = new WallKey(x, z, WallDirection.Left);
-            if (!placedWalls.Contains(key))
-            {
-                bool isOpen = tile.left == 2 && tile.isOpen && hasFF;
-                Vector3 pos;
-                Quaternion rot;
-
-                if (ShouldSwapLeftRight(row, col) || ShouldMoveLeftToRight(row, col))
-                {
-                    pos = center + new Vector3(cellSize / 2, 0, 0);
-                    rot = Quaternion.Euler(0, 90, 0);
-                }
-                else
-                {
-                    pos = center + new Vector3(-cellSize / 2, 0, 0);
-                    rot = Quaternion.Euler(0, 270, 0);
-                }
-
-                PlaceWallObject(tile.left, tile.leftHealth, isOpen, pos, rot, $"Wall_Left_{row}_{col}");
-                placedWalls.Add(key);
-            }
-        }
+        PlaceWallObject(value, health, isOpen, center + offset, rot, $"Wall_{dir}_{row}_{col}");
+        placedWalls.Add(key);
     }
 
     private void PlaceObjects()
     {
         foreach (var fire in fireList)
-        {
-            Vector3 pos = GetTileWorldPosition(fire.x, fire.y);
-            GameObject instance = Instantiate(firePrefab, pos, Quaternion.identity, transform);
-            instance.name = $"Fire_{fire.y + 1}_{fire.x + 1}";
-            CenterObjectAtPosition(instance, pos);
-        }
+            SpawnObject(firePrefab, fire, "Fire");
 
         foreach (var victim in victimList)
-        {
-            Vector3 pos = GetTileWorldPosition(victim.x, victim.y);
-            pos.y = 0;
-            GameObject instance = Instantiate(victimPrefab, pos, Quaternion.identity, transform);
-            instance.name = $"Victim_{victim.y + 1}_{victim.x + 1}";
-            CenterObjectAtPosition(instance, pos);
-        }
+            SpawnObject(victimPrefab, victim, "Victim");
 
         foreach (var falseAlarm in falseAlarmList)
-        {
-            Vector3 pos = GetTileWorldPosition(falseAlarm.x, falseAlarm.y);
-            pos.y = 0;
-            GameObject instance = Instantiate(victimPrefab, pos, Quaternion.identity, transform);
-            instance.name = $"FalseAlarm_{falseAlarm.y + 1}_{falseAlarm.x + 1}";
-            CenterObjectAtPosition(instance, pos);
+            SpawnObject(victimPrefab, falseAlarm, "FalseAlarm", Color.yellow);
+    }
 
-            var renderer = instance.GetComponent<Renderer>();
-            if (renderer != null)
-                renderer.material.color = Color.yellow;
-        }
+    private void SpawnObject(GameObject prefab, Vector2Int coords, string prefix, Color? color = null)
+    {
+        Vector3 pos = GetTileWorldPosition(coords.x, coords.y);
+        pos.y = 0;
+        GameObject instance = Instantiate(prefab, pos, Quaternion.identity, transform);
+        instance.name = $"{prefix}_{coords.y + 1}_{coords.x + 1}";
+        CenterObjectAtPosition(instance, pos);
+
+        if (color.HasValue && instance.TryGetComponent(out Renderer rend))
+            rend.material.color = color.Value;
     }
 
     private void PlaceWallObject(int type, int health, bool isOpen, Vector3 pos, Quaternion rot, string name)
@@ -307,28 +202,42 @@ public class TileBuilder : MonoBehaviour
         };
 
         if (prefab == null) return;
-        pos.y = 0;
 
+        pos.y = 0;
         GameObject instance = Instantiate(prefab, pos, rot, transform);
         instance.name = name;
 
-        if (type == 1 && health <= 0)
-        {
-            var renderer = instance.GetComponent<Renderer>();
-            if (renderer != null)
-                renderer.material.color = Color.gray;
-        }
+        if (type == 1 && health <= 0 && instance.TryGetComponent(out Renderer rend))
+            rend.material.color = Color.gray;
     }
 
     private void CenterObjectAtPosition(GameObject obj, Vector3 target)
     {
-        var rend = obj.GetComponent<Renderer>();
-        if (rend != null)
+        if (obj.TryGetComponent(out Renderer rend))
         {
             Vector3 offset = rend.bounds.center - obj.transform.position;
             obj.transform.position = target - offset;
         }
     }
+
+    private bool ShouldSkipWalls(int row, int col) => (row == 5 && col == 6);
+
+    private bool ShouldSwapLeftRight(int row, int col) =>
+        (col == 1 && row <= 6) || (col == 8 && row <= 4) ||
+        (row == 6 && col == 6) || (row == 1 && col == 3) ||
+        (row == 2 && col == 3) || (row == 1 && col == 6) ||
+        (row == 2 && col == 6) || (row == 6 && col == 5) ||
+        (row == 4 && col == 7) || (row == 3 && col == 7);
+
+    private bool ShouldMoveLeftToRight(int row, int col) =>
+        (row == 3 && col == 2) || (row == 4 && col == 2) ||
+        (row == 5 && col == 5) || (row == 6 && col == 5) ||
+        (row == 5 && col == 7) || (row == 6 && col == 7) ||
+        (row == 3 && col == 6) || (row == 4 && col == 6);
+
+    private bool ShouldForceRightToLeft(int row, int col) =>
+        (row == 2 && col == 6) || (row == 3 && col == 1) ||
+        (row == 4 && col == 7) || (row == 6 && col == 5);
 
     void OnDrawGizmos()
     {
