@@ -1,0 +1,18 @@
+fileFormatVersion: 2
+guid: fce5d0afaedb5314d8767c15fd6779be
+MonoImporter:
+  externalObjects: {}
+  serializedVersion: 2
+  defaultReferences:
+  - wallPrefab: {instanceID: 0}
+  - outerWallPrefab: {fileID: 3400180492001273131, guid: 63f020ff07b538547876b88388b8d14a, type: 3}
+  - floorPrefab: {fileID: 6416651768208285160, guid: 44925045c3961a04eadd721e12658008, type: 3}
+  - firePrefab: {fileID: 6889056080584565095, guid: 9ce9ac6e5cfa56747952019591512c01, type: 3}
+  - victimPrefab: {fileID: 8465794162207408059, guid: 5d52e800abe6faa49ba58cc3be8450e4, type: 3}
+  - doorClosedPrefab: {fileID: 1693768406812171903, guid: 2ea3726d2639a9545880a2f6ad553883, type: 3}
+  - doorOpenPrefab: {fileID: 389602660852727015, guid: ba554e95e0307244a93c73c2a015ecda, type: 3}
+  executionOrder: 0
+  icon: {instanceID: 0}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
